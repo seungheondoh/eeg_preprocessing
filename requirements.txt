@@ -1,0 +1,17 @@
+audioread
+h5py
+matplotlib
+numba
+numpy
+pandas
+scikit-learn
+scipy
+six
+SoundFile
+sox
+tqdm
+PyYAML
+ffmpeg-python
+jupyter
+mne
+pyeeg
