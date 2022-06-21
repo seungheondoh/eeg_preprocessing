@@ -1,5 +1,6 @@
 import os
 import csv
+import torch
 import numpy as np
 import pandas as pd
 import youtube_dl
@@ -8,9 +9,11 @@ import multiprocessing
 from collections import Counter
 from functools import partial
 from contextlib import contextmanager
-import pyeeg as pe
-import torch
 from tqdm import tqdm
+from sklearn import preprocessing
+import mne
+from .constants import BAND, DEAP_Start, LABELS, DEAP_CHANNEL
+from .eeg_utils import get_psd, psd_data, deap_label_encoder
 
 @contextmanager
 def poolcontext(*args, **kwargs):
@@ -44,26 +47,12 @@ def audio_crawl(_id, url, path):
     except:
         np.save(os.path.join(error_dir), _id)
 
-def fft_preprocess(data, channel, band, window_size, sample_rate, step_size):
-    start = 0
-    meta_array = []
-    while start + window_size < data.shape[1]:
-        meta_data = [] #meta vector for analysis
-        for j in channel:
-            X = data[j][start : start + window_size] #Slice raw data over 2 sec, at interval of 0.125 sec
-            Y = pe.bin_power(X, band, sample_rate) #FFT over 2 sec of channel j, in seq of theta, alpha, low beta, high beta, gamma
-            meta_data.extend(Y[0])
-        meta_array.append(np.array(meta_data))
-        start = start + step_size
-    return np.array(meta_array)
+def eeg_processor(path, info):
+    lb = preprocessing.LabelBinarizer()
+    lb.fit(LABELS)
 
-def eeg_processor(path):
     subjectList = ['01','02','03','04','05','06','07','08','09','10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29','30','31','32']
-    channel = [1,2,3,4,6,11,13,17,19,20,21,25,29,31] #14 Channels chosen to fit Emotiv Epoch+
-    band = [4,8,12,16,25,45] #5 bands
-    window_size = 256 #Averaging band power of 2 sec
-    step_size = 16 #Each 0.125 sec update once
-    sample_rate = 128 #Sampling rate of 128 Hz
+    channel = [i for i in range(32)] #14 Channels chosen to fit Emotiv Epoch+
     dirs = os.path.join(path, "data_preprocessed_python/")
     final_annotation = {}
     for sub in tqdm(subjectList):
@@ -72,23 +61,34 @@ def eeg_processor(path):
             for trial in range (0,40):
                 # loop over 0-39 trails
                 data = subject["data"][trial]
+                data = data[:32, DEAP_Start:]
                 label = subject["labels"][trial]
-                feature = fft_preprocess(data, channel, band, window_size, sample_rate, step_size)
+
+                stft = mne.time_frequency.stft(data, wsize=128)
+                cls_label, binary = deap_label_encoder(label, lb)
+                raw = mne.io.RawArray(data, info)
+                psd_feature = psd_data(raw)
+
                 final_annotation[f"{sub}_{trial}"] = {
                     "subject": sub,
                     "trial": trial,
                     "data": data,
+                    "stft": stft,
+                    "cls_label": cls_label,
+                    "binary": binary,
+                    "psd_feature": psd_feature,
                     "label": label,
-                    "feature": feature
                 }
     torch.save(final_annotation, os.path.join(path, "annotation.pt"))
 
 def DEAP_preprocssor(path):
-    df = pd.read_csv(os.path.join(path, "video_list.csv"))
-    paths = [path for _ in range(len(df))]
-    _ids = list(df['Online_id'])
-    urls = list(df['Youtube_link'])
-    with poolcontext(processes=multiprocessing.cpu_count()) as pool:
-        pool.starmap(audio_crawl, zip(_ids, urls, paths))
-    print("finish extract")
-    eeg_processor(path)
+    # df = pd.read_csv(os.path.join(path, "video_list.csv"))
+    # paths = [path for _ in range(len(df))]
+    # _ids = list(df['Online_id'])
+    # urls = list(df['Youtube_link'])
+    # with poolcontext(processes=multiprocessing.cpu_count()) as pool:
+    #     pool.starmap(audio_crawl, zip(_ids, urls, paths))
+    # print("finish extract")
+    info = mne.create_info(32, sfreq=128)
+    info = mne.create_info(DEAP_CHANNEL, ch_types=32*['eeg'], sfreq=128)
+    eeg_processor(path, info)
