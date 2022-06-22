@@ -2,7 +2,7 @@ import mne
 import math as m
 import numpy as np
 from scipy.interpolate import griddata
-from sklearn.preprocessing import scale
+from sklearn.preprocessing import scale, LabelBinarizer
 
 
 def get_psd(raw, l_ferq, h_freq):
@@ -18,7 +18,11 @@ def psd_data(raw):
     feature = np.hstack([t_psd, a_psd, b_psd, g_psd])
     return feature
 
-def deap_label_encoder(label, lb):
+def deap_label(label):
+    lb_AV = LabelBinarizer()
+    lb_AV.fit(['HAHV','HALV','LAHV','LALV'])
+    lb_A = ['HA','LA']
+    lb_V = ['HV','LV']
     if label[0] >= 5:
         arousal = "HA"
     else:
@@ -27,9 +31,16 @@ def deap_label_encoder(label, lb):
         valence = "HV"
     else:
         valence = "LV"
-    _label = arousal + valence
-    binary = lb.transform([_label])
-    return _label, binary.squeeze(0)
+    av_label = lb_AV.transform([arousal + valence])
+    if "H" in arousal:
+        a_label = np.array([1,0])
+    else:
+        a_label = np.array([0,1])
+    if "H" in valence:
+        v_label = np.array([1,0])
+    else:
+        v_label = np.array([0,1])
+    return av_label.squeeze(0), a_label, v_label
 
 def azim_proj(pos):
     """

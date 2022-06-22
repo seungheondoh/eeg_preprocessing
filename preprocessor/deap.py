@@ -13,7 +13,7 @@ from tqdm import tqdm
 from sklearn import preprocessing
 import mne
 from .constants import BAND, DEAP_Start, LABELS, DEAP_CHANNEL
-from .eeg_utils import get_psd, psd_data, deap_label_encoder
+from .eeg_utils import get_psd, psd_data, deap_label
 
 @contextmanager
 def poolcontext(*args, **kwargs):
@@ -48,13 +48,10 @@ def audio_crawl(_id, url, path):
         np.save(os.path.join(error_dir), _id)
 
 def eeg_processor(path, info):
-    lb = preprocessing.LabelBinarizer()
-    lb.fit(LABELS)
-
     subjectList = ['01','02','03','04','05','06','07','08','09','10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29','30','31','32']
     channel = [i for i in range(32)] #14 Channels chosen to fit Emotiv Epoch+
     dirs = os.path.join(path, "data_preprocessed_python/")
-    final_annotation = {}
+    raw_annotation, stft_annotation, psd_annotation = {}, {}, {}
     for sub in tqdm(subjectList):
         with open(f"{dirs}s{sub}.dat", 'rb') as file:
             subject = pickle.load(file, encoding='latin1') #resolve the python 2 data problem by encoding : latin1
@@ -65,21 +62,34 @@ def eeg_processor(path, info):
                 label = subject["labels"][trial]
 
                 stft = mne.time_frequency.stft(data, wsize=128)
-                cls_label, binary = deap_label_encoder(label, lb)
+                av_label, a_label, v_label = deap_label(label)
                 raw = mne.io.RawArray(data, info)
                 psd_feature = psd_data(raw)
 
-                final_annotation[f"{sub}_{trial}"] = {
-                    "subject": sub,
-                    "trial": trial,
-                    "data": data,
-                    "stft": stft,
-                    "cls_label": cls_label,
-                    "binary": binary,
-                    "psd_feature": psd_feature,
+                raw_annotation[f"{sub}_{trial}"] = {
+                    "raw_feature": data,
+                    "av_label": av_label,
+                    "a_label": a_label,
+                    "v_label": v_label,
                     "label": label,
                 }
-    torch.save(final_annotation, os.path.join(path, "annotation.pt"))
+                stft_annotation[f"{sub}_{trial}"] = {
+                    "stft_feature": np.abs(stft).astype(np.float32),
+                    "av_label": av_label,
+                    "a_label": a_label,
+                    "v_label": v_label,
+                    "label": label,
+                }
+                psd_annotation[f"{sub}_{trial}"] = {
+                    "psd_feature": psd_feature.reshape(-1),
+                    "av_label": av_label,
+                    "a_label": a_label,
+                    "v_label": v_label,
+                    "label": label,
+                }
+    torch.save(raw_annotation, os.path.join(path, "raw_data.pt"))
+    torch.save(stft_annotation, os.path.join(path, "stft_data.pt"))
+    torch.save(psd_annotation, os.path.join(path, "psd_data.pt"))
 
 def DEAP_preprocssor(path):
     # df = pd.read_csv(os.path.join(path, "video_list.csv"))
