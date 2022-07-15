@@ -3,11 +3,30 @@ import math as m
 import numpy as np
 from scipy.interpolate import griddata
 from sklearn.preprocessing import scale, LabelBinarizer
+from .constants import BAND
 
+def img_preprocessing(chunk_raw):
+    total_feature = []
+    for raw in chunk_raw:
+        t_ffts, a_ffts, b_ffts = [], [], []
+        for electrodes in raw:                             
+            fft_vals = np.absolute(np.fft.fft(electrodes, n=128))
+            t_ffts.append(np.sum(fft_vals[BAND['theta'][0]:BAND['theta'][1]]) ** 2)
+            a_ffts.append(np.sum(fft_vals[BAND['alpha'][0]:BAND['alpha'][1]]) ** 2)
+            b_ffts.append(np.sum(fft_vals[BAND['beta'][0]:BAND['beta'][1]]) ** 2)
+        chunk_feature = t_ffts+a_ffts+b_ffts
+        total_feature.extend(chunk_feature)
+    return np.array(total_feature)
+
+def dataset_to_img_feature(data):
+    chunk_raw = np.split(data, 20, axis=-1) # slice by time
+    image_feature = img_preprocessing(chunk_raw)
+    return np.array(image_feature)
 
 def get_psd(raw, l_ferq, h_freq):
-    band_psd, freq = mne.time_frequency.psd_welch(raw, fmin=l_ferq, fmax=h_freq, n_fft=128)
     band_raw = raw.filter(l_freq=l_ferq, h_freq=h_freq).get_data()
+    temp = np.split(band_raw, 20, axis=-1) # 
+    band_psd, freq = mne.time_frequency.psd_welch(raw, fmin=l_ferq, fmax=h_freq, n_fft=128)
     return band_raw, band_psd
 
 def psd_data(raw):
